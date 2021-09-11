@@ -2,8 +2,10 @@ package godebian
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -13,12 +15,13 @@ type SqliteDb struct {
 	inTransaction bool
 	baseDB
 
-	setETagStmt                 *stmt
-	getETagStmt                 *stmt
-	insertPackageFileStmt       *stmt
-	getPackageByFileVersionStmt *stmt
-	getPackages                 *stmt
-	removeAllPackagesStmt       *stmt
+	setETagStmt                     *stmt
+	getETagStmt                     *stmt
+	insertPackageFileStmt           *stmt
+	getPackageByFilepathVersionStmt *stmt
+	getPackageByFilenameVersionStmt *stmt
+	getPackages                     *stmt
+	removeAllPackagesStmt           *stmt
 }
 
 func (db *SqliteDb) Open() {
@@ -61,7 +64,8 @@ func (db *SqliteDb) prepareStatements() {
 		{"set ETag", "INSERT OR REPLACE INTO etag (version, current) VALUES (?, ?)", &db.setETagStmt},
 		{"get ETag", "SELECT current FROM etag WHERE version = ?", &db.getETagStmt},
 		{"insert package file", "INSERT OR REPLACE INTO file2package (version, path, package) VALUES (?, ?, ?)", &db.insertPackageFileStmt},
-		{"get package by version and file path", "SELECT package FROM file2package WHERE version = ? AND path = ?", &db.getPackageByFileVersionStmt},
+		{"get package by version and file path", "SELECT package FROM file2package WHERE version = ? AND path = ?", &db.getPackageByFilepathVersionStmt},
+		{"get package by version and file name", "SELECT package FROM file2package WHERE version = ? AND path LIKE ?", &db.getPackageByFilenameVersionStmt},
 		{"remove all packages of version", "DELETE FROM file2package WHERE version = ?", &db.removeAllPackagesStmt},
 		{"list packages by version", "SELECT path, package FROM file2package WHERE version = ?", &db.getPackages},
 	}
@@ -82,10 +86,10 @@ func (db *SqliteDb) removeAllPackages(version string) {
 	db.removeAllPackagesStmt.Exec(version)
 }
 
-func (db *SqliteDb) getPackage(version, path string) []string {
+func (db *SqliteDb) getPackageByX(version, path string, s *stmt) []string {
 	var filePackages []string
 
-	rows := db.getPackageByFileVersionStmt.Query(version, path)
+	rows := s.Query(version, path)
 	defer rows.Close()
 
 	for rows.Next() {
@@ -99,6 +103,15 @@ func (db *SqliteDb) getPackage(version, path string) []string {
 	}
 
 	return filePackages
+}
+
+func (db *SqliteDb) getPackage(version, path string) []string {
+	if strings.HasPrefix(path, "/") {
+		return db.getPackageByX(version, path, db.getPackageByFilepathVersionStmt)
+	} else {
+		path = fmt.Sprintf("%%/%s", path)
+		return db.getPackageByX(version, path, db.getPackageByFilenameVersionStmt)
+	}
 }
 
 func (db *SqliteDb) walk(version string, walker func(path, pkg string) bool) {

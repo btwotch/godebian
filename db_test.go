@@ -67,6 +67,14 @@ func TestPackages(t *testing.T) {
 			t.Fatalf("%s should have %d packages, but is %+v", packageFile, i+1, ps)
 		}
 	}
+
+	for i := 0; i < 10; i++ {
+		packageFile := fmt.Sprintf("%d/file", i)
+		ps := d.getPackage("stable", packageFile)
+		if len(ps) != i+1 {
+			t.Fatalf("%s should have %d packages, but is %+v", packageFile, i+1, ps)
+		}
+	}
 }
 
 func TestPackageWalk(t *testing.T) {
