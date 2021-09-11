@@ -68,3 +68,28 @@ func TestPackages(t *testing.T) {
 		}
 	}
 }
+
+func TestPackageWalk(t *testing.T) {
+	dbfh, err := ioutil.TempFile("/var/tmp", "aptfs-test-db-*")
+	if err != nil {
+		panic(err)
+	}
+
+	filename := dbfh.Name()
+	defer dbfh.Close()
+	defer os.Remove(filename)
+
+	var d SqliteDb
+
+	d.dbPath = filename
+
+	d.Open()
+	d.insertPackageFile("stable", "/usr/bin/foo", "foo")
+
+	d.walk("stable", func(path, pkg string) bool {
+		if path != "/usr/bin/foo" || pkg != "foo" {
+			t.Errorf("path should be /usr/bin/foo but is %s; pkg should be foo, but is %s", path, pkg)
+		}
+		return true
+	})
+}

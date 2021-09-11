@@ -17,6 +17,7 @@ type Db interface {
 	getPackage(version, path string) []string
 	removeAllPackages(version string)
 	insertPackageFile(version, path, filePackage string)
+	walk(version string, walker func(path, pkg string) bool)
 }
 
 type DebianContents struct {
@@ -103,4 +104,8 @@ func (d DebianContents) Search(path string) []string {
 	}
 
 	return ret
+}
+
+func (d DebianContents) Walk(walker func(path, pkg string) bool) {
+	d.db.walk(d.distroWithVersion, walker)
 }

@@ -17,6 +17,7 @@ type SqliteDb struct {
 	getETagStmt                 *stmt
 	insertPackageFileStmt       *stmt
 	getPackageByFileVersionStmt *stmt
+	getPackages                 *stmt
 	removeAllPackagesStmt       *stmt
 }
 
@@ -62,6 +63,7 @@ func (db *SqliteDb) prepareStatements() {
 		{"insert package file", "INSERT OR REPLACE INTO file2package (version, path, package) VALUES (?, ?, ?)", &db.insertPackageFileStmt},
 		{"get package by version and file path", "SELECT package FROM file2package WHERE version = ? AND path = ?", &db.getPackageByFileVersionStmt},
 		{"remove all packages of version", "DELETE FROM file2package WHERE version = ?", &db.removeAllPackagesStmt},
+		{"list packages by version", "SELECT path, package FROM file2package WHERE version = ?", &db.getPackages},
 	}
 
 	var err error
@@ -97,6 +99,26 @@ func (db *SqliteDb) getPackage(version, path string) []string {
 	}
 
 	return filePackages
+}
+
+func (db *SqliteDb) walk(version string, walker func(path, pkg string) bool) {
+	rows := db.getPackages.Query(version)
+	defer rows.Close()
+
+	for rows.Next() {
+		var path string
+		var pkg string
+
+		err := rows.Scan(&path, &pkg)
+		if err != nil {
+			panic(err)
+		}
+
+		ret := walker(path, pkg)
+		if !ret {
+			return
+		}
+	}
 }
 
 func (db *SqliteDb) insertPackageFile(version, path, filePackage string) {
