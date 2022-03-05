@@ -23,8 +23,6 @@ type Db interface {
 type DebianContents struct {
 	db                Db
 	distroWithVersion string
-	contentsFile      string
-	searchFor         map[string]bool
 }
 
 func (d *DebianContents) readContentsFileIntoDB(r io.Reader) {
