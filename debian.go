@@ -43,7 +43,9 @@ func (d *DebianContents) readContentsFileIntoDB(r io.Reader) {
 		path := "/" + ss[0]
 		debs := ss[len(ss)-1]
 		for _, deb := range strings.Split(debs, ",") {
-			d.db.insertPackageFile(d.distroWithVersion, path, deb)
+			pkgPath := strings.Split(deb, "/")
+			pkg := pkgPath[len(pkgPath)-1]
+			d.db.insertPackageFile(d.distroWithVersion, path, pkg)
 		}
 	}
 

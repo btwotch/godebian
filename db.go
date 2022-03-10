@@ -83,9 +83,18 @@ func (db *SqliteDb) prepareStatements() {
 		{"get popularity ETag", "SELECT current FROM etag_popularity WHERE version = ?", &db.getPopularityETagStmt},
 		{"insert package file", "INSERT OR REPLACE INTO file2package (version, path, package) VALUES (?, ?, ?)", &db.insertPackageFileStmt},
 		{"insert package popularity", "INSERT OR REPLACE INTO package2popularity (version, package, popularity) VALUES (?, ?, ?)", &db.insertPackagePopularityStmt},
-		{"get package by version and file path", "SELECT package FROM file2package WHERE version = ? AND path = ?", &db.getPackageByFilepathVersionStmt},
-		{"get package by version and file name", "SELECT package FROM file2package WHERE version = ? AND path LIKE ?", &db.getPackageByFilenameVersionStmt},
-		//{"get most popular package by version and file name", "SELECT package FROM file2package AS WHERE version = ? AND path LIKE ?", &db.getPackageByFilenameVersionStmt},
+		{"get package by version and file path", `SELECT f2p.package FROM file2package AS f2p, package2popularity AS p2p
+								WHERE f2p.version = ?
+									AND f2p.path = ?
+									AND f2p.version = p2p.version
+									AND f2p.package = p2p.package
+								ORDER BY p2p.popularity ASC`, &db.getPackageByFilepathVersionStmt},
+		{"get package by version and file name", `SELECT f2p.package FROM file2package AS f2p, package2popularity AS p2p
+								WHERE f2p.version = ?
+									AND f2p.path LIKE ?
+									AND f2p.version = p2p.version
+									AND f2p.package = p2p.package
+								ORDER BY p2p.popularity ASC`, &db.getPackageByFilenameVersionStmt},
 		{"get package popularity", "SELECT popularity FROM package2popularity WHERE version = ? AND package = ?", &db.getPopularityByPackageStmt},
 		{"remove all packages of version", "DELETE FROM file2package WHERE version = ?", &db.removeAllPackagesStmt},
 		{"remove all popcons of version", "DELETE FROM package2popularity WHERE version = ?", &db.removeAllPopularitiesStmt},
