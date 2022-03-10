@@ -6,22 +6,28 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
 type Db interface {
 	beginTransaction()
 	endTransaction()
-	setETag(version, etag string)
-	getETag(version string) string
+	setContentETag(version, etag string)
+	getContentETag(version string) string
+	setPopularityETag(version, etag string)
+	getPopularityETag(version string) string
 	getPackage(version, path string) []string
 	removeAllPackages(version string)
+	removeAllPopularities(version string)
 	insertPackageFile(version, path, filePackage string)
+	insertPackagePopularity(version, pkg string, popularity uint)
 	walk(version string, walker func(path, pkg string) bool)
 }
 
 type DebianContents struct {
 	db                Db
+	version           string
 	distroWithVersion string
 }
 
@@ -48,19 +54,52 @@ func (d *DebianContents) readContentsFileIntoDB(r io.Reader) {
 }
 
 func NewDebianContents(version string, db Db) DebianContents {
-	return newContents("debian", version, db, "http://ftp.debian.org/debian/dists/%s/main/Contents-amd64.gz")
+	dc := DebianContents{distroWithVersion: fmt.Sprintf("debian/%s", version), db: db, version: version}
+	dc.updateContents("http://ftp.debian.org/debian/dists/%s/main/Contents-amd64.gz")
+
+	return dc
 }
 
 func NewUbuntuContents(version string, db Db) DebianContents {
-	return newContents("ubuntu", version, db, "http://de.archive.ubuntu.com/ubuntu/dists/%s/Contents-amd64.gz")
+	dc := DebianContents{distroWithVersion: fmt.Sprintf("ubuntu/%s", version), db: db, version: version}
+	dc.updateContents("http://de.archive.ubuntu.com/ubuntu/dists/%s/Contents-amd64.gz")
+	dc.updatePopularity("https://popcon.ubuntu.com/by_inst.gz")
+
+	return dc
 }
 
-func newContents(distro, version string, db Db, urlfmt string) DebianContents {
-	dc := DebianContents{distroWithVersion: fmt.Sprintf("%s/%s", distro, version), db: db}
+func (d *DebianContents) readPopularityFileIntoDB(r io.Reader) {
+	scanner := bufio.NewScanner(r)
+	d.db.beginTransaction()
+	defer d.db.endTransaction()
+	for scanner.Scan() {
+		if strings.HasPrefix(scanner.Text(), "#") {
+			continue
+		}
 
-	etag := db.getETag(dc.distroWithVersion)
+		ss := strings.Fields(scanner.Text())
+		if len(ss) < 2 {
+			continue
+		}
+
+		pkg := ss[1]
+		popularity, err := strconv.Atoi(ss[0])
+		if err != nil {
+			panic("Could not parse line " + scanner.Text())
+		}
+
+		d.db.insertPackagePopularity(d.distroWithVersion, pkg, uint(popularity))
+	}
+
+	if err := scanner.Err(); err != nil {
+		panic(err)
+	}
+
+}
+
+func (d *DebianContents) updatePopularity(url string) {
+	etag := d.db.getPopularityETag(d.distroWithVersion)
 	client := &http.Client{}
-	url := fmt.Sprintf(urlfmt, version)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		panic(err)
@@ -73,9 +112,10 @@ func newContents(distro, version string, db Db, urlfmt string) DebianContents {
 	}
 
 	if resp.StatusCode == http.StatusNotModified {
-		return dc
+		return
 	}
-	db.removeAllPackages(dc.distroWithVersion)
+
+	d.db.removeAllPopularities(d.distroWithVersion)
 
 	gzr, err := gzip.NewReader(resp.Body)
 	if err != nil {
@@ -85,11 +125,42 @@ func newContents(distro, version string, db Db, urlfmt string) DebianContents {
 	defer gzr.Close()
 	defer resp.Body.Close()
 
-	dc.readContentsFileIntoDB(gzr)
+	d.readPopularityFileIntoDB(gzr)
 
-	dc.db.setETag(dc.distroWithVersion, resp.Header.Get("Etag"))
+	d.db.setPopularityETag(d.distroWithVersion, resp.Header.Get("Etag"))
+}
 
-	return dc
+func (d *DebianContents) updateContents(urlfmt string) {
+	etag := d.db.getContentETag(d.distroWithVersion)
+	client := &http.Client{}
+	url := fmt.Sprintf(urlfmt, d.version)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	req.Header.Set("If-None-Match", etag)
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+
+	if resp.StatusCode == http.StatusNotModified {
+		return
+	}
+	d.db.removeAllPackages(d.distroWithVersion)
+
+	gzr, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		panic(err)
+	}
+
+	defer gzr.Close()
+	defer resp.Body.Close()
+
+	d.readContentsFileIntoDB(gzr)
+
+	d.db.setContentETag(d.distroWithVersion, resp.Header.Get("Etag"))
 }
 
 func (d DebianContents) Search(path string) []string {

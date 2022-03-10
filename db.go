@@ -15,13 +15,19 @@ type SqliteDb struct {
 	inTransaction bool
 	baseDB
 
-	setETagStmt                     *stmt
-	getETagStmt                     *stmt
+	setContentETagStmt              *stmt
+	getContentETagStmt              *stmt
+	setPopularityETagStmt           *stmt
+	getPopularityETagStmt           *stmt
 	insertPackageFileStmt           *stmt
+	insertPackagePopularityStmt     *stmt
 	getPackageByFilepathVersionStmt *stmt
 	getPackageByFilenameVersionStmt *stmt
-	getPackages                     *stmt
+	getPackagesStmt                 *stmt
+	getPopularityByPackageStmt      *stmt
+	getPopularityByPackage          *stmt
 	removeAllPackagesStmt           *stmt
+	removeAllPopularitiesStmt       *stmt
 }
 
 func (db *SqliteDb) Open() {
@@ -40,12 +46,22 @@ func (db *SqliteDb) Open() {
 		panic("Could not open db: " + err.Error())
 	}
 
-	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS etag (version VARCHAR, current VARCHAR, PRIMARY KEY(version))`)
+	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS etag_contents (version VARCHAR, current VARCHAR, PRIMARY KEY(version))`)
+	if err != nil {
+		panic("Could not create table etag: " + err.Error())
+	}
+
+	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS etag_popularity (version VARCHAR, current VARCHAR, PRIMARY KEY(version))`)
 	if err != nil {
 		panic("Could not create table etag: " + err.Error())
 	}
 
 	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS file2package (version VARCHAR, path VARCHAR, package VARCHAR, PRIMARY KEY(version, path, package))`)
+	if err != nil {
+		panic("Could not create table etag: " + err.Error())
+	}
+
+	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS package2popularity (version VARCHAR, package VARCHAR, popularity INTEGER, PRIMARY KEY(version, package))`)
 	if err != nil {
 		panic("Could not create table etag: " + err.Error())
 	}
@@ -61,13 +77,19 @@ func (db *SqliteDb) prepareStatements() {
 		stmtStr string
 		stmt    **stmt
 	}{
-		{"set ETag", "INSERT OR REPLACE INTO etag (version, current) VALUES (?, ?)", &db.setETagStmt},
-		{"get ETag", "SELECT current FROM etag WHERE version = ?", &db.getETagStmt},
+		{"set contents ETag", "INSERT OR REPLACE INTO etag_contents (version, current) VALUES (?, ?)", &db.setContentETagStmt},
+		{"get contents ETag", "SELECT current FROM etag_contents WHERE version = ?", &db.getContentETagStmt},
+		{"set popularity ETag", "INSERT OR REPLACE INTO etag_popularity (version, current) VALUES (?, ?)", &db.setPopularityETagStmt},
+		{"get popularity ETag", "SELECT current FROM etag_popularity WHERE version = ?", &db.getPopularityETagStmt},
 		{"insert package file", "INSERT OR REPLACE INTO file2package (version, path, package) VALUES (?, ?, ?)", &db.insertPackageFileStmt},
+		{"insert package popularity", "INSERT OR REPLACE INTO package2popularity (version, package, popularity) VALUES (?, ?, ?)", &db.insertPackagePopularityStmt},
 		{"get package by version and file path", "SELECT package FROM file2package WHERE version = ? AND path = ?", &db.getPackageByFilepathVersionStmt},
 		{"get package by version and file name", "SELECT package FROM file2package WHERE version = ? AND path LIKE ?", &db.getPackageByFilenameVersionStmt},
+		//{"get most popular package by version and file name", "SELECT package FROM file2package AS WHERE version = ? AND path LIKE ?", &db.getPackageByFilenameVersionStmt},
+		{"get package popularity", "SELECT popularity FROM package2popularity WHERE version = ? AND package = ?", &db.getPopularityByPackageStmt},
 		{"remove all packages of version", "DELETE FROM file2package WHERE version = ?", &db.removeAllPackagesStmt},
-		{"list packages by version", "SELECT path, package FROM file2package WHERE version = ?", &db.getPackages},
+		{"remove all popcons of version", "DELETE FROM package2popularity WHERE version = ?", &db.removeAllPopularitiesStmt},
+		{"list packages by version", "SELECT path, package FROM file2package WHERE version = ?", &db.getPackagesStmt},
 	}
 
 	var err error
@@ -84,6 +106,27 @@ func (db *SqliteDb) prepareStatements() {
 
 func (db *SqliteDb) removeAllPackages(version string) {
 	db.removeAllPackagesStmt.Exec(version)
+}
+
+func (db *SqliteDb) removeAllPopularities(version string) {
+	db.removeAllPopularitiesStmt.Exec(version)
+}
+
+func (db *SqliteDb) getPackagePopularity(version, pkg string) uint {
+	rows := db.getPopularityByPackageStmt.Query(version, pkg)
+	defer rows.Close()
+
+	if !rows.Next() {
+		return 0
+	}
+
+	var popularity uint
+	err := rows.Scan(&popularity)
+	if err != nil {
+		panic(err)
+	}
+
+	return popularity
 }
 
 func (db *SqliteDb) getPackageByX(version, path string, s *stmt) []string {
@@ -115,7 +158,7 @@ func (db *SqliteDb) getPackage(version, path string) []string {
 }
 
 func (db *SqliteDb) walk(version string, walker func(path, pkg string) bool) {
-	rows := db.getPackages.Query(version)
+	rows := db.getPackagesStmt.Query(version)
 	defer rows.Close()
 
 	for rows.Next() {
@@ -136,6 +179,10 @@ func (db *SqliteDb) walk(version string, walker func(path, pkg string) bool) {
 
 func (db *SqliteDb) insertPackageFile(version, path, filePackage string) {
 	db.insertPackageFileStmt.Exec(version, path, filePackage)
+}
+
+func (db *SqliteDb) insertPackagePopularity(version, pkg string, popularity uint) {
+	db.insertPackagePopularityStmt.Exec(version, pkg, popularity)
 }
 
 func (db *SqliteDb) beginTransaction() {
@@ -161,14 +208,36 @@ func (db *SqliteDb) endTransaction() {
 	db.inTransaction = false
 }
 
-func (db *SqliteDb) setETag(version, etag string) {
-	db.setETagStmt.Exec(version, etag)
+func (db *SqliteDb) setContentETag(version, etag string) {
+	db.setContentETagStmt.Exec(version, etag)
 }
 
-func (db *SqliteDb) getETag(version string) string {
+func (db *SqliteDb) getContentETag(version string) string {
 	var etag string
 
-	rows := db.getETagStmt.Query(version)
+	rows := db.getContentETagStmt.Query(version)
+	defer rows.Close()
+
+	if !rows.Next() {
+		return ""
+	}
+
+	err := rows.Scan(&etag)
+	if err != nil {
+		panic(err)
+	}
+
+	return etag
+}
+
+func (db *SqliteDb) setPopularityETag(version, etag string) {
+	db.setPopularityETagStmt.Exec(version, etag)
+}
+
+func (db *SqliteDb) getPopularityETag(version string) string {
+	var etag string
+
+	rows := db.getPopularityETagStmt.Query(version)
 	defer rows.Close()
 
 	if !rows.Next() {
