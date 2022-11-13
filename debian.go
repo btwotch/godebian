@@ -120,7 +120,7 @@ func (d *DebianContents) updatePopularity(url string) {
 
 	gzr, err := gzip.NewReader(resp.Body)
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("updating popularity from %s failed: %v", url, err))
 	}
 
 	defer gzr.Close()
@@ -153,7 +153,7 @@ func (d *DebianContents) updateContents(urlfmt string) {
 
 	gzr, err := gzip.NewReader(resp.Body)
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("Opening content file failed: %+v, req: %+v, resp: %+v", err, req, resp))
 	}
 
 	defer gzr.Close()
