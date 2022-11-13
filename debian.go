@@ -166,11 +166,16 @@ func (d *DebianContents) updateContents(urlfmt string) {
 
 func (d DebianContents) Search(path string) []string {
 	var ret []string
+	retMap := make(map[string]struct{})
 	pkgs := d.db.getPackage(d.distroWithVersion, path)
 
 	for _, pkg := range pkgs {
 		ss := strings.Split(pkg, "/")
-		ret = append(ret, ss[len(ss)-1])
+		retMap[ss[len(ss)-1]] = struct{}{}
+	}
+
+	for k, _ := range retMap {
+		ret = append(ret, k)
 	}
 
 	return ret
