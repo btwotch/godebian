@@ -65,7 +65,6 @@ func NewDebianContents(version string, db Db) DebianContents {
 func NewUbuntuContents(version string, db Db) DebianContents {
 	dc := DebianContents{distroWithVersion: fmt.Sprintf("ubuntu/%s", version), db: db, version: version}
 	dc.updateContents("http://de.archive.ubuntu.com/ubuntu/dists/%s/Contents-amd64.gz")
-	dc.updatePopularity("https://popcon.ubuntu.com/by_inst.gz")
 
 	return dc
 }
