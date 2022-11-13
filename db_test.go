@@ -23,10 +23,10 @@ func TestETag(t *testing.T) {
 
 	d.Open()
 
-	d.setETag("stable", "bar")
-	d.setETag("stable", "foo")
+	d.setContentETag("stable", "bar")
+	d.setContentETag("stable", "foo")
 
-	et := d.getETag("stable")
+	et := d.getContentETag("stable")
 
 	if et != "foo" {
 		t.Fatalf("Setting and retrieving etag failed, should be foo, but is: %s", et)
