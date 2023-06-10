@@ -10,14 +10,18 @@ import (
 func main() {
 	var d godebian.SqliteDb
 
-	if len(os.Args) != 2 {
-		fmt.Printf("Usage: %s <path>\n", os.Args[0])
+	if len(os.Args) != 4 {
+		fmt.Printf("Usage: %s <ubuntu|debian> <version> <path>\n", os.Args[0])
 		os.Exit(0)
 	}
 	d.Open()
-	c := godebian.NewDebianContents("stable", &d)
+	var c godebian.DebianContents
+	if os.Args[1] == "ubuntu" {
+		c = godebian.NewUbuntuContents(os.Args[2], &d)
+	} else if os.Args[1] == "debian" {
+		c = godebian.NewDebianContents(os.Args[2], &d)
+	}
 
-	p := c.Search(os.Args[1])
-
+	p := c.Search(os.Args[3])
 	fmt.Println(p)
 }
