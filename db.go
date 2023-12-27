@@ -25,7 +25,6 @@ type SqliteDb struct {
 	getPackageByFilenameVersionStmt *stmt
 	getPackagesStmt                 *stmt
 	getPopularityByPackageStmt      *stmt
-	getPopularityByPackage          *stmt
 	removeAllPackagesStmt           *stmt
 	removeAllPopularitiesStmt       *stmt
 }

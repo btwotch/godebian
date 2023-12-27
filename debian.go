@@ -23,6 +23,7 @@ type Db interface {
 	insertPackageFile(version, path, filePackage string)
 	insertPackagePopularity(version, pkg string, popularity uint)
 	walk(version string, walker func(path, pkg string) bool)
+	getPackagePopularity(version, pkg string) uint
 }
 
 type DebianContents struct {
@@ -179,6 +180,10 @@ func (d DebianContents) Search(path string) []string {
 	}
 
 	return ret
+}
+
+func (d DebianContents) Popularity(pkg string) uint {
+	return d.db.getPackagePopularity(d.distroWithVersion, pkg)
 }
 
 func (d DebianContents) Walk(walker func(path, pkg string) bool) {

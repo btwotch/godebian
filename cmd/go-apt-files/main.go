@@ -22,6 +22,9 @@ func main() {
 		c = godebian.NewDebianContents(os.Args[2], &d)
 	}
 
-	p := c.Search(os.Args[3])
-	fmt.Println(p)
+	packages := c.Search(os.Args[3])
+	for _, pkg := range packages {
+		pop := c.Popularity(pkg)
+		fmt.Printf("%s | popularity: %d\n", pkg, pop)
+	}
 }
