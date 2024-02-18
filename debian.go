@@ -58,7 +58,7 @@ func (d *DebianContents) readContentsFileIntoDB(r io.Reader) {
 
 func NewDebianContents(version string, db Db) DebianContents {
 	dc := DebianContents{distroWithVersion: fmt.Sprintf("debian/%s", version), db: db, version: version}
-	dc.updatePopularity("https://popcon.debian.org/by_inst.gz")
+	dc.updatePopularity("https://popcon.debian.org/by_vote.gz")
 	dc.updateContents("http://ftp.debian.org/debian/dists/%s/main/Contents-amd64.gz")
 
 	return dc
@@ -67,7 +67,7 @@ func NewDebianContents(version string, db Db) DebianContents {
 func NewUbuntuContents(version string, db Db) DebianContents {
 	dc := DebianContents{distroWithVersion: fmt.Sprintf("ubuntu/%s", version), db: db, version: version}
 	dc.updateContents("http://de.archive.ubuntu.com/ubuntu/dists/%s/Contents-amd64.gz")
-	dc.updatePopularity("https://popcon.debian.org/by_inst.gz")
+	dc.updatePopularity("https://popcon.debian.org/by_vote.gz")
 
 	return dc
 }
@@ -103,19 +103,9 @@ func (d *DebianContents) readPopularityFileIntoDB(r io.Reader) {
 
 func (d *DebianContents) updatePopularity(url string) {
 	etag := d.db.getPopularityETag(d.distroWithVersion)
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		panic(err)
-	}
 
-	req.Header.Set("If-None-Match", etag)
-	resp, err := client.Do(req)
-	if err != nil {
-		panic(err)
-	}
-
-	if resp.StatusCode == http.StatusNotModified {
+	resp := eTagRequest(url, etag)
+	if resp == nil {
 		return
 	}
 
@@ -135,9 +125,30 @@ func (d *DebianContents) updatePopularity(url string) {
 }
 
 func (d *DebianContents) updateContents(urlfmt string) {
-	etag := d.db.getContentETag(d.distroWithVersion)
-	client := &http.Client{}
 	url := fmt.Sprintf(urlfmt, d.version)
+	etag := d.db.getContentETag(d.distroWithVersion)
+
+	resp := eTagRequest(url, etag)
+	if resp == nil {
+		return
+	}
+	d.db.removeAllPackages(d.distroWithVersion)
+
+	gzr, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		panic(fmt.Errorf("Opening content file failed: %+v, req: url: %s, resp: %+v", err, url, resp))
+	}
+
+	defer gzr.Close()
+	defer resp.Body.Close()
+
+	d.readContentsFileIntoDB(gzr)
+
+	d.db.setContentETag(d.distroWithVersion, resp.Header.Get("Etag"))
+}
+
+func eTagRequest(url string, etag string) *http.Response {
+	client := &http.Client{}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		panic(err)
@@ -150,21 +161,9 @@ func (d *DebianContents) updateContents(urlfmt string) {
 	}
 
 	if resp.StatusCode == http.StatusNotModified {
-		return
+		return nil
 	}
-	d.db.removeAllPackages(d.distroWithVersion)
-
-	gzr, err := gzip.NewReader(resp.Body)
-	if err != nil {
-		panic(fmt.Errorf("Opening content file failed: %+v, req: %+v, resp: %+v", err, req, resp))
-	}
-
-	defer gzr.Close()
-	defer resp.Body.Close()
-
-	d.readContentsFileIntoDB(gzr)
-
-	d.db.setContentETag(d.distroWithVersion, resp.Header.Get("Etag"))
+	return resp
 }
 
 func (d DebianContents) Search(path string) []string {
