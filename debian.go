@@ -58,6 +58,7 @@ func (d *DebianContents) readContentsFileIntoDB(r io.Reader) {
 
 func NewDebianContents(version string, db Db) DebianContents {
 	dc := DebianContents{distroWithVersion: fmt.Sprintf("debian/%s", version), db: db, version: version}
+	dc.updatePopularity("https://popcon.debian.org/by_inst.gz")
 	dc.updateContents("http://ftp.debian.org/debian/dists/%s/main/Contents-amd64.gz")
 
 	return dc
@@ -66,6 +67,7 @@ func NewDebianContents(version string, db Db) DebianContents {
 func NewUbuntuContents(version string, db Db) DebianContents {
 	dc := DebianContents{distroWithVersion: fmt.Sprintf("ubuntu/%s", version), db: db, version: version}
 	dc.updateContents("http://de.archive.ubuntu.com/ubuntu/dists/%s/Contents-amd64.gz")
+	dc.updatePopularity("https://popcon.debian.org/by_inst.gz")
 
 	return dc
 }
