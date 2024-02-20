@@ -24,7 +24,8 @@ func main() {
 
 	packages := c.Search(os.Args[3])
 	for _, pkg := range packages {
+		pkginfo := c.PackageInfo(pkg)
 		pop := c.Popularity(pkg)
-		fmt.Printf("%s | popularity: %d\n", pkg, pop)
+		fmt.Printf("%s | package info: %+v | popularity: %d\n", pkg, pkginfo, pop)
 	}
 }
