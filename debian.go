@@ -82,6 +82,7 @@ func NewUbuntuContents(version string, db Db) DebianContents {
 	dc := DebianContents{distroWithVersion: fmt.Sprintf("ubuntu/%s", version), db: db, version: version, arch: "amd64"}
 	dc.updateContents("http://de.archive.ubuntu.com/ubuntu/dists/%s/Contents-amd64.gz")
 	dc.updatePopularity("https://popcon.debian.org/by_vote.gz")
+	dc.updatePackageInfo("http://de.archive.ubuntu.com/ubuntu/dists/%s/main/binary-%s/Packages.gz")
 
 	return dc
 }
