@@ -172,6 +172,8 @@ func (d *DebianContents) updatePackageInfo(urlfmt string) {
 	defer resp.Body.Close()
 
 	scanner := bufio.NewScanner(gzr)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
 	var pi PackageInfo
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -187,6 +189,9 @@ func (d *DebianContents) updatePackageInfo(urlfmt string) {
 		if deps != "" {
 			pi.Depends = strings.Split(deps, ", ")
 		}
+	}
+	if scanner.Err() != nil {
+		panic(scanner.Err())
 	}
 
 	d.db.setPackageInfoETag(d.distroWithVersion, d.arch, resp.Header.Get("Etag"))
