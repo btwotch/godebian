@@ -20,19 +20,19 @@ type PackageInfo struct {
 type Db interface {
 	beginTransaction()
 	endTransaction()
-	setContentETag(version, etag string)
-	getContentETag(version string) string
+	setContentETag(version, repo, etag string)
+	getContentETag(version, repo string) string
 	setPopularityETag(version, etag string)
 	getPopularityETag(version string) string
-	setPackageInfoETag(version, arch, etag string)
-	getPackageInfoETag(version, arch string) string
+	setPackageInfoETag(version, repo, arch, etag string)
+	getPackageInfoETag(version, repo, arch string) string
 	getPackage(version, path string) []string
 	getPackageInfo(version, arch, pkg string) PackageInfo
-	removeAllPackages(version string)
-	removeAllPackageInfos(version, arch string)
+	removeAllPackages(version, repo string)
+	removeAllPackageInfos(version, repo, arch string)
 	removeAllPopularities(version string)
-	insertPackageFile(version, path, filePackage string)
-	insertPackageInfo(version string, arch string, pi PackageInfo)
+	insertPackageFile(version, repo, path, filePackage string)
+	insertPackageInfo(version, repo string, arch string, pi PackageInfo)
 	insertPackagePopularity(version, pkg string, popularity uint)
 	walk(version string, walker func(path, pkg string) bool)
 	getPackagePopularity(version, pkg string) uint
@@ -45,7 +45,7 @@ type DebianContents struct {
 	arch              string
 }
 
-func (d *DebianContents) readContentsFileIntoDB(r io.Reader) {
+func (d *DebianContents) readContentsFileIntoDB(r io.Reader, repo string) {
 	scanner := bufio.NewScanner(r)
 	d.db.beginTransaction()
 	defer d.db.endTransaction()
@@ -59,7 +59,7 @@ func (d *DebianContents) readContentsFileIntoDB(r io.Reader) {
 		for _, deb := range strings.Split(debs, ",") {
 			pkgPath := strings.Split(deb, "/")
 			pkg := pkgPath[len(pkgPath)-1]
-			d.db.insertPackageFile(d.distroWithVersion, path, pkg)
+			d.db.insertPackageFile(d.distroWithVersion, repo, path, pkg)
 		}
 	}
 
@@ -71,18 +71,37 @@ func (d *DebianContents) readContentsFileIntoDB(r io.Reader) {
 
 func NewDebianContents(version string, db Db) DebianContents {
 	dc := DebianContents{distroWithVersion: fmt.Sprintf("debian/%s", version), db: db, version: version, arch: "amd64"}
+	contentsURLFmt := "http://ftp.debian.org/debian/dists/%s/%s/Contents-amd64.gz"
+	packageInfoFmt := "http://ftp.debian.org/debian/dists/%s/%s/binary-%s/Packages.gz"
+
 	dc.updatePopularity("https://popcon.debian.org/by_vote.gz")
-	dc.updateContents("http://ftp.debian.org/debian/dists/%s/main/Contents-amd64.gz")
-	dc.updatePackageInfo("http://ftp.debian.org/debian/dists/%s/main/binary-%s/Packages.gz")
+
+	for _, repo := range []string{"main", "non-free"} {
+		contentsURL := fmt.Sprintf(contentsURLFmt, dc.version, repo)
+		packageInfo := fmt.Sprintf(packageInfoFmt, dc.version, repo, dc.arch)
+
+		dc.updateContents(contentsURL, repo)
+		dc.updatePackageInfo(packageInfo, repo)
+	}
 
 	return dc
 }
 
 func NewUbuntuContents(version string, db Db) DebianContents {
 	dc := DebianContents{distroWithVersion: fmt.Sprintf("ubuntu/%s", version), db: db, version: version, arch: "amd64"}
-	dc.updateContents("http://de.archive.ubuntu.com/ubuntu/dists/%s/Contents-amd64.gz")
+
+	contentsURLFmt := "http://de.archive.ubuntu.com/ubuntu/dists/%s/Contents-%s.gz"
+	packageInfoFmt := "http://de.archive.ubuntu.com/ubuntu/dists/%s/%s/binary-%s/Packages.gz"
+
 	dc.updatePopularity("https://popcon.debian.org/by_vote.gz")
-	dc.updatePackageInfo("http://de.archive.ubuntu.com/ubuntu/dists/%s/main/binary-%s/Packages.gz")
+
+	contentsURL := fmt.Sprintf(contentsURLFmt, dc.version, dc.arch)
+	dc.updateContents(contentsURL, "")
+	for _, repo := range []string{"main", "multiverse", "universe", "restricted"} {
+		packageInfoURL := fmt.Sprintf(packageInfoFmt, dc.version, repo, dc.arch)
+
+		dc.updatePackageInfo(packageInfoURL, repo)
+	}
 
 	return dc
 }
@@ -153,9 +172,8 @@ func setContentFileValue(line, prefix string, value *string) {
 
 }
 
-func (d *DebianContents) updatePackageInfo(urlfmt string) {
-	url := fmt.Sprintf(urlfmt, d.version, d.arch)
-	etag := d.db.getPackageInfoETag(d.distroWithVersion, d.arch)
+func (d *DebianContents) updatePackageInfo(url string, repo string) {
+	etag := d.db.getPackageInfoETag(d.distroWithVersion, repo, d.arch)
 
 	resp := eTagRequest(url, etag)
 	if resp == nil {
@@ -167,7 +185,7 @@ func (d *DebianContents) updatePackageInfo(urlfmt string) {
 		panic(fmt.Errorf("updating package info from %s failed: %v", url, err))
 	}
 
-	d.db.removeAllPackageInfos(d.distroWithVersion, d.arch)
+	d.db.removeAllPackageInfos(d.distroWithVersion, repo, d.arch)
 	defer gzr.Close()
 	defer resp.Body.Close()
 
@@ -178,7 +196,7 @@ func (d *DebianContents) updatePackageInfo(urlfmt string) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
-			d.db.insertPackageInfo(d.distroWithVersion, d.arch, pi)
+			d.db.insertPackageInfo(d.distroWithVersion, repo, d.arch, pi)
 			pi = PackageInfo{}
 		}
 		setContentFileValue(line, "Package: ", &pi.Name)
@@ -194,18 +212,17 @@ func (d *DebianContents) updatePackageInfo(urlfmt string) {
 		panic(scanner.Err())
 	}
 
-	d.db.setPackageInfoETag(d.distroWithVersion, d.arch, resp.Header.Get("Etag"))
+	d.db.setPackageInfoETag(d.distroWithVersion, repo, d.arch, resp.Header.Get("Etag"))
 }
 
-func (d *DebianContents) updateContents(urlfmt string) {
-	url := fmt.Sprintf(urlfmt, d.version)
-	etag := d.db.getContentETag(d.distroWithVersion)
+func (d *DebianContents) updateContents(url, repo string) {
+	etag := d.db.getContentETag(d.distroWithVersion, repo)
 
 	resp := eTagRequest(url, etag)
 	if resp == nil {
 		return
 	}
-	d.db.removeAllPackages(d.distroWithVersion)
+	d.db.removeAllPackages(d.distroWithVersion, repo)
 
 	gzr, err := gzip.NewReader(resp.Body)
 	if err != nil {
@@ -215,9 +232,9 @@ func (d *DebianContents) updateContents(urlfmt string) {
 	defer gzr.Close()
 	defer resp.Body.Close()
 
-	d.readContentsFileIntoDB(gzr)
+	d.readContentsFileIntoDB(gzr, repo)
 
-	d.db.setContentETag(d.distroWithVersion, resp.Header.Get("Etag"))
+	d.db.setContentETag(d.distroWithVersion, repo, resp.Header.Get("Etag"))
 }
 
 func eTagRequest(url string, etag string) *http.Response {
@@ -235,6 +252,11 @@ func eTagRequest(url string, etag string) *http.Response {
 
 	if resp.StatusCode == http.StatusNotModified {
 		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		err := fmt.Errorf("http request failed: %+v", resp)
+		panic(err)
 	}
 	return resp
 }

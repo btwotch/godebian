@@ -50,7 +50,7 @@ func (db *SqliteDb) Open() {
 		panic("Could not open db: " + err.Error())
 	}
 
-	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS etag_contents (version VARCHAR, current VARCHAR, PRIMARY KEY(version))`)
+	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS etag_contents (version VARCHAR, repo VARCHAR, current VARCHAR, PRIMARY KEY(version, repo))`)
 	if err != nil {
 		panic("Could not create table etag: " + err.Error())
 	}
@@ -60,16 +60,16 @@ func (db *SqliteDb) Open() {
 		panic("Could not create table etag: " + err.Error())
 	}
 
-	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS etag_packageinfo (version VARCHAR, arch VARCHAR, current VARCHAR, PRIMARY KEY(version, arch))`)
+	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS etag_packageinfo (version VARCHAR, repo VARCHAR, arch VARCHAR, current VARCHAR, PRIMARY KEY(version, repo, arch))`)
 	if err != nil {
 		panic("Could not create table etag: " + err.Error())
 	}
 
-	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS file2package (version VARCHAR, path VARCHAR, package VARCHAR, PRIMARY KEY(version, path, package))`)
+	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS file2package (version VARCHAR, repo VARCHAR, path VARCHAR, package VARCHAR, PRIMARY KEY(version, repo, path, package))`)
 	if err != nil {
 		panic("Could not create table file2package: " + err.Error())
 	}
-	_, err = db.db.Exec(`CREATE INDEX file2package_path_idx ON file2package(path);`)
+	_, err = db.db.Exec(`CREATE INDEX IF NOT EXISTS file2package_path_idx ON file2package(path);`)
 	if err != nil {
 		panic("Could not create index on file2package: " + err.Error())
 	}
@@ -79,7 +79,7 @@ func (db *SqliteDb) Open() {
 		panic("Could not create table package2popularity: " + err.Error())
 	}
 
-	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS packageinfo (version VARCHAR, package VARCHAR, package_version VARCHAR, arch VARCHAR, filename VARCHAR,
+	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS packageinfo (version VARCHAR, repo VARCHAR, package VARCHAR, package_version VARCHAR, arch VARCHAR, filename VARCHAR,
 		PRIMARY KEY(version, package, package_version, arch))`)
 	if err != nil {
 		panic("Could not create table packageinfo: " + err.Error())
@@ -101,16 +101,16 @@ func (db *SqliteDb) prepareStatements() {
 		stmtStr string
 		stmt    **stmt
 	}{
-		{"set contents ETag", "INSERT OR REPLACE INTO etag_contents (version, current) VALUES (?, ?)", &db.setContentETagStmt},
-		{"get contents ETag", "SELECT current FROM etag_contents WHERE version = ?", &db.getContentETagStmt},
+		{"set contents ETag", "INSERT OR REPLACE INTO etag_contents (version, repo, current) VALUES (?, ?, ?)", &db.setContentETagStmt},
+		{"get contents ETag", "SELECT current FROM etag_contents WHERE version = ? AND repo = ?", &db.getContentETagStmt},
 		{"set popularity ETag", "INSERT OR REPLACE INTO etag_popularity (version, current) VALUES (?, ?)", &db.setPopularityETagStmt},
 		{"get popularity ETag", "SELECT current FROM etag_popularity WHERE version = ?", &db.getPopularityETagStmt},
-		{"set packageinfo ETag", "INSERT OR REPLACE INTO etag_packageinfo (version, arch, current) VALUES (?, ?, ?)", &db.setPackageInfoETagStmt},
-		{"get packageinfo ETag", "SELECT current FROM etag_packageinfo WHERE version = ? AND arch = ?", &db.getPackageInfoETagStmt},
-		{"insert package file", "INSERT OR REPLACE INTO file2package (version, path, package) VALUES (?, ?, ?)", &db.insertPackageFileStmt},
-		{"insert package info", "INSERT OR REPLACE INTO packageinfo (version, package, package_version, arch, filename) VALUES (?, ?, ?, ?, ?)", &db.insertPackageInfoStmt},
+		{"set packageinfo ETag", "INSERT OR REPLACE INTO etag_packageinfo (version, repo, arch, current) VALUES (?, ?, ?, ?)", &db.setPackageInfoETagStmt},
+		{"get packageinfo ETag", "SELECT current FROM etag_packageinfo WHERE version = ? AND repo = ? AND arch = ?", &db.getPackageInfoETagStmt},
+		{"insert package file", "INSERT OR REPLACE INTO file2package (version, repo, path, package) VALUES (?, ?, ?, ?)", &db.insertPackageFileStmt},
+		{"insert package info", "INSERT OR REPLACE INTO packageinfo (version, repo, package, package_version, arch, filename) VALUES (?, ?, ?, ?, ?, ?)", &db.insertPackageInfoStmt},
 		{"insert package popularity", "INSERT OR REPLACE INTO package2popularity (version, package, popularity) VALUES (?, ?, ?)", &db.insertPackagePopularityStmt},
-		{"get package by version and file path", `SELECT f2p.package FROM file2package AS f2p LEFT JOIN package2popularity AS p2p
+		{"get package by version, repo and file path", `SELECT f2p.package FROM file2package AS f2p LEFT JOIN package2popularity AS p2p
 								ON f2p.version = p2p.version
 									AND f2p.package = p2p.package
 								WHERE f2p.version = ?
@@ -123,10 +123,10 @@ func (db *SqliteDb) prepareStatements() {
 									AND f2p.path LIKE ?
 								ORDER BY p2p.popularity ASC`, &db.getPackageByFilenameVersionStmt},
 		{"get package popularity", "SELECT popularity FROM package2popularity WHERE version = ? AND package = ?", &db.getPopularityByPackageStmt},
-		{"remove all packages of version", "DELETE FROM file2package WHERE version = ?", &db.removeAllPackagesStmt},
-		{"remove all packageinfos of version and arch", "DELETE FROM packageinfo WHERE version = ? AND arch = ?", &db.removeAllPackageInfosStmt},
+		{"remove all packages of version, repo", "DELETE FROM file2package WHERE version = ? AND repo = ?", &db.removeAllPackagesStmt},
+		{"remove all packageinfos of version, repo and arch", "DELETE FROM packageinfo WHERE version = ? AND repo = ? AND arch = ?", &db.removeAllPackageInfosStmt},
 		{"remove all popcons of version", "DELETE FROM package2popularity WHERE version = ?", &db.removeAllPopularitiesStmt},
-		{"list packages by version", "SELECT path, package FROM file2package WHERE version = ?", &db.getPackagesStmt},
+		{"list packages by version and repo", "SELECT path, package FROM file2package WHERE version = ? AND repo = ?", &db.getPackagesStmt},
 		{"get package info", "SELECT filename FROM packageinfo WHERE version = ? AND arch = ? AND package = ?", &db.getPackageInfoStmt},
 	}
 
@@ -142,12 +142,12 @@ func (db *SqliteDb) prepareStatements() {
 
 }
 
-func (db *SqliteDb) removeAllPackageInfos(version, arch string) {
-	db.removeAllPackageInfosStmt.Exec(version, arch)
+func (db *SqliteDb) removeAllPackageInfos(version, repo, arch string) {
+	db.removeAllPackageInfosStmt.Exec(version, repo, arch)
 }
 
-func (db *SqliteDb) removeAllPackages(version string) {
-	db.removeAllPackagesStmt.Exec(version)
+func (db *SqliteDb) removeAllPackages(version, repo string) {
+	db.removeAllPackagesStmt.Exec(version, repo)
 }
 
 func (db *SqliteDb) removeAllPopularities(version string) {
@@ -242,12 +242,12 @@ func (db *SqliteDb) walk(version string, walker func(path, pkg string) bool) {
 	}
 }
 
-func (db *SqliteDb) insertPackageInfo(version string, arch string, pkginfo PackageInfo) {
-	db.insertPackageInfoStmt.Exec(version, pkginfo.Name, pkginfo.Version, arch, pkginfo.Filename)
+func (db *SqliteDb) insertPackageInfo(version, repo string, arch string, pkginfo PackageInfo) {
+	db.insertPackageInfoStmt.Exec(version, repo, pkginfo.Name, pkginfo.Version, arch, pkginfo.Filename)
 }
 
-func (db *SqliteDb) insertPackageFile(version, path, filePackage string) {
-	db.insertPackageFileStmt.Exec(version, path, filePackage)
+func (db *SqliteDb) insertPackageFile(version, repo, path, filePackage string) {
+	db.insertPackageFileStmt.Exec(version, repo, path, filePackage)
 }
 
 func (db *SqliteDb) insertPackagePopularity(version, pkg string, popularity uint) {
@@ -277,18 +277,18 @@ func (db *SqliteDb) endTransaction() {
 	db.inTransaction = false
 }
 
-func (db *SqliteDb) setContentETag(version, etag string) {
-	db.setContentETagStmt.Exec(version, etag)
+func (db *SqliteDb) setContentETag(version, repo, etag string) {
+	db.setContentETagStmt.Exec(version, repo, etag)
 }
 
-func (db *SqliteDb) setPackageInfoETag(version, arch, etag string) {
-	db.setPackageInfoETagStmt.Exec(version, arch, etag)
+func (db *SqliteDb) setPackageInfoETag(version, repo, arch, etag string) {
+	db.setPackageInfoETagStmt.Exec(version, repo, arch, etag)
 }
 
-func (db *SqliteDb) getPackageInfoETag(version, arch string) string {
+func (db *SqliteDb) getPackageInfoETag(version, repo, arch string) string {
 	var etag string
 
-	rows := db.getPackageInfoETagStmt.Query(version, arch)
+	rows := db.getPackageInfoETagStmt.Query(version, repo, arch)
 	defer rows.Close()
 
 	if !rows.Next() {
@@ -303,10 +303,10 @@ func (db *SqliteDb) getPackageInfoETag(version, arch string) string {
 	return etag
 }
 
-func (db *SqliteDb) getContentETag(version string) string {
+func (db *SqliteDb) getContentETag(version, repo string) string {
 	var etag string
 
-	rows := db.getContentETagStmt.Query(version)
+	rows := db.getContentETagStmt.Query(version, repo)
 	defer rows.Close()
 
 	if !rows.Next() {
