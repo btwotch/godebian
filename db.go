@@ -69,6 +69,10 @@ func (db *SqliteDb) Open() {
 	if err != nil {
 		panic("Could not create table file2package: " + err.Error())
 	}
+	_, err = db.db.Exec(`CREATE INDEX file2package_path_idx ON file2package(path);`)
+	if err != nil {
+		panic("Could not create index on file2package: " + err.Error())
+	}
 
 	_, err = db.db.Exec(`CREATE TABLE IF NOT EXISTS package2popularity (version VARCHAR, package VARCHAR, popularity INTEGER, PRIMARY KEY(version, package))`)
 	if err != nil {
