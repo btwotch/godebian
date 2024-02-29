@@ -39,7 +39,46 @@ func main() {
 		},
 	}
 
+	packageInfoCmd := &cobra.Command{
+		Use:   "show",
+		Short: "<ubuntu|debian> version package",
+		Args:  cobra.ExactArgs(3),
+		Run: func(cmd *cobra.Command, args []string) {
+			distro := args[0]
+			version := args[1]
+			pkg := args[2]
+			if distro == "ubuntu" {
+				c = godebian.NewUbuntuContents(version, &d)
+			} else if distro == "debian" {
+				c = godebian.NewDebianContents(version, &d)
+			}
+			pi := c.PackageInfo(pkg)
+			fmt.Printf("%+v\n", pi)
+		},
+	}
+
+	packageDownloadCmd := &cobra.Command{
+		Use:   "download",
+		Short: "<ubuntu|debian> version package",
+		Args:  cobra.ExactArgs(3),
+		Run: func(cmd *cobra.Command, args []string) {
+			distro := args[0]
+			version := args[1]
+			pkg := args[2]
+			if distro == "ubuntu" {
+				c = godebian.NewUbuntuContents(version, &d)
+			} else if distro == "debian" {
+				c = godebian.NewDebianContents(version, &d)
+			}
+
+			url := c.PackageURL(pkg)
+			fmt.Printf("%s\n", url)
+		},
+	}
+
 	rootCmd.AddCommand(searchCmd)
+	rootCmd.AddCommand(packageInfoCmd)
+	rootCmd.AddCommand(packageDownloadCmd)
 
 	rootCmd.Execute()
 

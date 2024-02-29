@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -43,6 +44,7 @@ type DebianContents struct {
 	version           string
 	distroWithVersion string
 	arch              string
+	downloadBaseURL   string
 }
 
 func (d *DebianContents) readContentsFileIntoDB(r io.Reader, repo string) {
@@ -71,6 +73,8 @@ func (d *DebianContents) readContentsFileIntoDB(r io.Reader, repo string) {
 
 func NewDebianContents(version string, db Db) DebianContents {
 	dc := DebianContents{distroWithVersion: fmt.Sprintf("debian/%s", version), db: db, version: version, arch: "amd64"}
+	dc.downloadBaseURL = "http://ftp.debian.org/debian/"
+
 	contentsURLFmt := "http://ftp.debian.org/debian/dists/%s/%s/Contents-amd64.gz"
 	packageInfoFmt := "http://ftp.debian.org/debian/dists/%s/%s/binary-%s/Packages.gz"
 
@@ -89,6 +93,7 @@ func NewDebianContents(version string, db Db) DebianContents {
 
 func NewUbuntuContents(version string, db Db) DebianContents {
 	dc := DebianContents{distroWithVersion: fmt.Sprintf("ubuntu/%s", version), db: db, version: version, arch: "amd64"}
+	dc.downloadBaseURL = "http://de.archive.ubuntu.com/ubuntu"
 
 	contentsURLFmt := "http://de.archive.ubuntu.com/ubuntu/dists/%s/Contents-%s.gz"
 	packageInfoFmt := "http://de.archive.ubuntu.com/ubuntu/dists/%s/%s/binary-%s/Packages.gz"
@@ -280,6 +285,21 @@ func (d DebianContents) Search(path string) []string {
 
 func (d DebianContents) PackageInfo(pkg string) PackageInfo {
 	return d.db.getPackageInfo(d.distroWithVersion, d.arch, pkg)
+}
+
+func (d DebianContents) PackageURL(pkg string) string {
+	pi := d.db.getPackageInfo(d.distroWithVersion, d.arch, pkg)
+
+	if pi.Filename == "" {
+		return ""
+	}
+
+	u, err := url.JoinPath(d.downloadBaseURL, pi.Filename)
+	if err != nil {
+		panic(err)
+	}
+
+	return u
 }
 
 func (d DebianContents) Popularity(pkg string) uint {
