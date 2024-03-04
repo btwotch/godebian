@@ -287,6 +287,17 @@ func (d DebianContents) PackageInfo(pkg string) PackageInfo {
 	return d.db.getPackageInfo(d.distroWithVersion, d.arch, pkg)
 }
 
+func (d DebianContents) Extract(pkg string, filter func(fp io.Reader, fi FileInfo)) {
+	url := d.PackageURL(pkg)
+	if url == "" {
+		return
+	}
+
+	e := extractor{}
+	e.extractFunc = filter
+	e.extract(url)
+}
+
 func (d DebianContents) PackageURL(pkg string) string {
 	pi := d.db.getPackageInfo(d.distroWithVersion, d.arch, pkg)
 

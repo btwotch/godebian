@@ -6,58 +6,65 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/blakesmith/ar"
 	archiver "github.com/mholt/archiver/v4"
 )
 
-func extractDataFile(r io.Reader, filename string) {
+type FileInfo struct {
+	Path     string
+	Uid      int
+	Gid      int
+	Mode     fs.FileMode
+	ModeTime time.Time
+	IsDir    bool
+}
+
+type extractor struct {
+	extractFunc func(fp io.Reader, fi FileInfo)
+}
+
+func (e extractor) extractDataFile(r io.Reader, filename string) {
 	format, input, err := archiver.Identify(filename, r)
 	if err != nil {
 		panic(err)
 	}
 
-	baseDir, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
-	baseDir = filepath.Join(baseDir, "extract")
 	handler := func(ctx context.Context, f archiver.File) error {
-		path := filepath.Join(baseDir, f.NameInArchive)
 		h, ok := f.Header.(*tar.Header)
 		if !ok {
 			return nil
 		}
-		if f.IsDir() {
-			os.MkdirAll(path, f.Mode())
-			err := os.Chown(path, h.Uid, h.Gid)
-			if err != nil && !errors.Is(err, syscall.EPERM) {
+		fi := FileInfo{
+			Path:     f.NameInArchive,
+			Uid:      h.Uid,
+			Gid:      h.Gid,
+			Mode:     f.Mode(),
+			ModeTime: f.ModTime(),
+			IsDir:    f.IsDir(),
+		}
+
+		var fp io.ReadCloser
+		if f.Open != nil {
+			fp, err = f.Open()
+			if err != nil {
 				panic(err)
 			}
 
-			return nil
 		}
+		defer func() {
+			if fp != nil {
+				fp.Close()
+			}
+		}()
 
-		dirPath := filepath.Dir(path)
-		os.MkdirAll(dirPath, f.Mode())
-		wp, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, f.Mode())
-		if err != nil {
-			panic(err)
-		}
-		defer wp.Close()
-		fp, err := f.Open()
-		if err != nil {
-			panic(err)
-		}
-		defer fp.Close()
+		e.extractFunc(fp, fi)
 
-		io.Copy(wp, fp)
-		err = os.Chown(path, h.Uid, h.Gid)
 		if err != nil && !errors.Is(err, syscall.EPERM) {
 			panic(err)
 		}
@@ -71,7 +78,7 @@ func extractDataFile(r io.Reader, filename string) {
 	}
 }
 
-func extract(url string) {
+func (e extractor) extract(url string) {
 	resp, err := http.Get(url)
 	if err != nil {
 		panic(err)
@@ -91,15 +98,8 @@ func extract(url string) {
 			panic(err)
 		}
 		if strings.HasPrefix(header.Name, "data") {
-			extractDataFile(deb, header.Name)
+			e.extractDataFile(deb, header.Name)
 
 		}
 	}
 }
-
-/*
-func main() {
-	xfig := "http://ftp.debian.org/debian/pool/main/x/xfig/xfig_3.2.8b-2+b2_amd64.deb"
-	extract(xfig)
-}
-*/
