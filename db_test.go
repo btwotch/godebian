@@ -2,13 +2,12 @@ package godebian
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"testing"
 )
 
 func TestETag(t *testing.T) {
-	dbfh, err := ioutil.TempFile("/var/tmp", "aptfs-test-db-*")
+	dbfh, err := os.CreateTemp("/var/tmp", "aptfs-test-db-*")
 	if err != nil {
 		panic(err)
 	}
@@ -23,10 +22,10 @@ func TestETag(t *testing.T) {
 
 	d.Open()
 
-	d.setContentETag("stable", "bar")
-	d.setContentETag("stable", "foo")
+	d.setContentETag("stable", "amd64", "contrib", "bar")
+	d.setContentETag("stable", "amd64", "contrib", "foo")
 
-	et := d.getContentETag("stable")
+	et := d.getContentETag("stable", "amd64", "contrib")
 
 	if et != "foo" {
 		t.Fatalf("Setting and retrieving etag failed, should be foo, but is: %s", et)
@@ -34,7 +33,7 @@ func TestETag(t *testing.T) {
 }
 
 func TestPackages(t *testing.T) {
-	dbfh, err := ioutil.TempFile("/var/tmp", "aptfs-test-db-*")
+	dbfh, err := os.CreateTemp("/var/tmp", "aptfs-test-db-*")
 	if err != nil {
 		panic(err)
 	}
@@ -55,7 +54,7 @@ func TestPackages(t *testing.T) {
 			packageName := fmt.Sprintf("package-%d-%d", i, j)
 			packageFile := fmt.Sprintf("/usr/%d/file", i)
 
-			d.insertPackageFile("stable", packageFile, packageName)
+			d.insertPackageFile("stable", "amd64", "main", packageFile, packageName)
 		}
 	}
 	d.endTransaction()
@@ -78,7 +77,7 @@ func TestPackages(t *testing.T) {
 }
 
 func TestPackageWalk(t *testing.T) {
-	dbfh, err := ioutil.TempFile("/var/tmp", "aptfs-test-db-*")
+	dbfh, err := os.CreateTemp("/var/tmp", "aptfs-test-db-*")
 	if err != nil {
 		panic(err)
 	}
@@ -92,9 +91,9 @@ func TestPackageWalk(t *testing.T) {
 	d.dbPath = filename
 
 	d.Open()
-	d.insertPackageFile("stable", "/usr/bin/foo", "foo")
+	d.insertPackageFile("stable", "amd64", "main", "/usr/bin/foo", "foo")
 
-	d.walk("stable", func(path, pkg string) bool {
+	d.walk("stable", "amd64", "main", func(path, pkg string) bool {
 		if path != "/usr/bin/foo" || pkg != "foo" {
 			t.Errorf("path should be /usr/bin/foo but is %s; pkg should be foo, but is %s", path, pkg)
 		}
