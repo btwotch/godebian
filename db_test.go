@@ -100,3 +100,73 @@ func TestPackageWalk(t *testing.T) {
 		return true
 	})
 }
+
+func TestCreatePackagesSqlFmtString(t *testing.T) {
+	str := createPackagesSqlFmtString(5)
+
+	t.Log(str)
+}
+
+func FuzzSplitStringArray(f *testing.F) {
+	f.Fuzz(func(t *testing.T, splitLen int, arrayLen uint32) {
+		if arrayLen == 0 || splitLen <= 0 {
+			return
+		}
+		arr := make([]string, arrayLen)
+
+		for i := 0; i < int(arrayLen)-1; i++ {
+			arr[i] = fmt.Sprintf("%d", i)
+		}
+
+		arrs := split(arr, splitLen)
+
+		flattenedArr := make([]string, 0)
+		for _, arr := range arrs {
+			for _, str := range arr {
+				t.Logf("\t%s", str)
+				flattenedArr = append(flattenedArr, str)
+			}
+			t.Logf("----")
+		}
+
+		if len(flattenedArr) != len(arr) {
+			t.Fatal("different array length")
+		}
+
+		for i := range flattenedArr {
+			if flattenedArr[i] != arr[i] {
+				t.Fatalf("%d: %s <-> %s", i, flattenedArr[i], arr[i])
+			}
+		}
+	})
+}
+func TestSplitStringArray(t *testing.T) {
+	splitLen := 3
+
+	arr := make([]string, 0)
+
+	for i := 0; i < 5; i++ {
+		arr = append(arr, fmt.Sprintf("%d", i))
+	}
+
+	arrs := split(arr, splitLen)
+	flattenedArr := make([]string, 0)
+
+	for _, arr := range arrs {
+		for _, str := range arr {
+			t.Logf("\t%s", str)
+			flattenedArr = append(flattenedArr, str)
+		}
+		t.Logf("----")
+	}
+
+	if len(flattenedArr) != len(arr) {
+		t.Fatal("different array length")
+	}
+
+	for i := range flattenedArr {
+		if flattenedArr[i] != arr[i] {
+			t.Fatalf("%d: %s <-> %s", i, flattenedArr[i], arr[i])
+		}
+	}
+}

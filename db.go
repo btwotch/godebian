@@ -213,6 +213,59 @@ func (db *SqliteDb) getPackageByX(version, path string, s *stmt) []string {
 	return filePackages
 }
 
+func createPackagesSqlFmtString(count int) string {
+	var inStr string
+
+	for i := 0; i < count; i++ {
+		inStr = fmt.Sprintf("?, %s", inStr)
+	}
+
+	inStr = strings.TrimRight(inStr, ", ")
+
+	sqlStr := fmt.Sprintf(`SELECT f2p.path, f2p.package FROM file2package AS f2p LEFT JOIN package2popularity AS p2p
+									ON f2p.version = p2p.version
+										AND f2p.package = p2p.package
+									WHERE f2p.version = ?
+										AND f2p.path IN (%s)
+									ORDER BY p2p.popularity ASC`, inStr)
+
+	return sqlStr
+
+}
+func (db *SqliteDb) getPackages(version string, paths []string) map[string][]string {
+	ret := make(map[string][]string)
+
+	for _, splitPaths := range split(paths, 1000) {
+		stmt := db.newStmt("get packages", createPackagesSqlFmtString(len(splitPaths)))
+		pathsInterface := make([]interface{}, len(splitPaths)+1)
+		pathsInterface[0] = version
+		for i := range splitPaths {
+			pathsInterface[i+1] = splitPaths[i]
+		}
+		rows := stmt.Query(pathsInterface...)
+
+		defer rows.Close()
+
+		for rows.Next() {
+			var path string
+			var pkg string
+
+			err := rows.Scan(&path, &pkg)
+			if err != nil {
+				panic(err)
+			}
+
+			if ret[path] == nil {
+				ret[path] = make([]string, 0)
+			}
+
+			ret[path] = append(ret[path], pkg)
+		}
+	}
+
+	return ret
+}
+
 func (db *SqliteDb) getPackage(version, path string) []string {
 	if strings.HasPrefix(path, "/") {
 		return db.getPackageByX(version, path, db.getPackageByFilepathVersionStmt)
@@ -341,4 +394,18 @@ func (db *SqliteDb) getPopularityETag(version string) string {
 	}
 
 	return etag
+}
+
+func split(arr []string, splitLen int) [][]string {
+	splitArrs := make([][]string, 0)
+	for i := 0; i < len(arr); i += splitLen {
+		end := i + splitLen
+		if end > len(arr) {
+			end = len(arr)
+		}
+		slice := arr[i:end]
+		splitArrs = append(splitArrs, slice)
+	}
+
+	return splitArrs
 }

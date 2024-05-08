@@ -28,6 +28,7 @@ type Db interface {
 	setPackageInfoETag(version, repo, arch, etag string)
 	getPackageInfoETag(version, repo, arch string) string
 	getPackage(version, path string) []string
+	getPackages(version string, path []string) map[string][]string
 	getPackageInfo(version, arch, pkg string) PackageInfo
 	removeAllPackages(version, arch, repo string)
 	removeAllPackageInfos(version, repo, arch string)
@@ -277,6 +278,10 @@ func eTagRequest(url string, etag string) *http.Response {
 		panic(err)
 	}
 	return resp
+}
+
+func (d DebianContents) SearchPaths(paths []string) map[string][]string {
+	return d.db.getPackages(d.distroWithVersion, paths)
 }
 
 func (d DebianContents) Search(path string) []string {
